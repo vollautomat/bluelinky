@@ -20,6 +20,7 @@ import { asyncMap, manageBluelinkyError, Stringifiable, uuidV4 } from '../tools/
 import { AuthStrategy, Code, Token } from './authStrategies/authStrategy';
 import { EuropeanBrandAuthStrategy } from './authStrategies/european.brandAuth.strategy';
 import { EuropeanLegacyAuthStrategy } from './authStrategies/european.legacyAuth.strategy';
+import { CCIBundle, EuropeanCCIAuthStrategy } from './authStrategies/european.cci.strategy';
 
 export interface EuropeBlueLinkyConfig extends BlueLinkyConfig {
   language?: EULanguages;
@@ -40,6 +41,8 @@ export class EuropeanController extends SessionController<EuropeBlueLinkyConfig>
     main: AuthStrategy;
     fallback: AuthStrategy;
   };
+  private cciAuthStrategy: EuropeanCCIAuthStrategy;
+  private cciBundle?: CCIBundle;
   constructor(userConfig: EuropeBlueLinkyConfig) {
     super(userConfig);
     this.userConfig.language = userConfig.language ?? DEFAULT_LANGUAGE;
@@ -56,6 +59,10 @@ export class EuropeanController extends SessionController<EuropeBlueLinkyConfig>
       main: new EuropeanBrandAuthStrategy(this._environment, this.userConfig.language),
       fallback: new EuropeanLegacyAuthStrategy(this._environment, this.userConfig.language),
     };
+    this.cciAuthStrategy = new EuropeanCCIAuthStrategy(
+      this._environment,
+      this.userConfig.language
+    );
     logger.debug('EU Controller created');
   }
 
@@ -85,6 +92,10 @@ export class EuropeanController extends SessionController<EuropeBlueLinkyConfig>
     if (!shouldRefreshToken) {
       logger.debug('Token not expired, no need to refresh');
       return 'Token not expired, no need to refresh';
+    }
+
+    if (this.cciBundle) {
+      return this.refreshCCIAccessToken(this.cciBundle);
     }
 
     try {
@@ -129,6 +140,36 @@ export class EuropeanController extends SessionController<EuropeBlueLinkyConfig>
     return 'Token refreshed';
   }
 
+  private async refreshCCIAccessToken(bundle: CCIBundle): Promise<string> {
+    try {
+      this.applyCCIBundle(await this.cciAuthStrategy.refresh(bundle));
+    } catch (err) {
+      logger.debug(
+        `CCI token refresh failed, logging in again: ${(err as Stringifiable).toString()}`
+      );
+      try {
+        this.applyCCIBundle(
+          await this.cciAuthStrategy.login({
+            username: this.userConfig.username ?? '',
+            password: this.userConfig.password ?? '',
+          })
+        );
+      } catch (loginErr) {
+        throw manageBluelinkyError(loginErr, 'EuropeController.refreshAccessToken');
+      }
+    }
+
+    logger.debug('Token refreshed');
+    return 'Token refreshed';
+  }
+
+  private applyCCIBundle(bundle: CCIBundle): void {
+    this.cciBundle = bundle;
+    this.session.accessToken = `Bearer ${bundle.accessToken}`;
+    this.session.refreshToken = bundle.refreshToken;
+    this.session.tokenExpiresAt = bundle.expiresAt;
+  }
+
   public async enterPin(): Promise<string> {
     if (this.session.accessToken === '') {
       throw 'Token not set';
@@ -163,31 +204,56 @@ export class EuropeanController extends SessionController<EuropeBlueLinkyConfig>
       if (!this.userConfig.password || !this.userConfig.username) {
         throw new Error('@EuropeController.login: username and password must be defined.');
       }
-      let authResult: { code: Code | Token; cookies: CookieJar } | null = null;
-      try {
-        logger.debug(
-          `@EuropeController.login: Trying to sign in with ${this.authStrategies.main.name}`
-        );
-        authResult = await this.authStrategies.main.login({
-          password: this.userConfig.password,
-          username: this.userConfig.username,
-        });
-      } catch (e) {
-        logger.error(
-          `@EuropeController.login: sign in with ${
-            this.authStrategies.main.name
-          } failed with error ${(e as Stringifiable).toString()}`
-        );
+      const credentials = {
+        password: this.userConfig.password,
+        username: this.userConfig.username,
+      };
 
-        throw new Error('@EuropeController.login: Could not manage to get token');
+      // A legacy refresh_token obtained before the 2026-08 WAF block still
+      // works as password. Account passwords are limited to 8-20 characters,
+      // so anything longer can only be such a token.
+      let authenticated = false;
+      if (credentials.password.length > 20) {
+        try {
+          logger.debug(
+            `@EuropeController.login: Trying to sign in with ${this.authStrategies.main.name}`
+          );
+          const authResult: { code: Code | Token; cookies: CookieJar } =
+            await this.authStrategies.main.login(credentials);
+          const token = authResult.code as Token;
+          this.cciBundle = undefined;
+          this.session.accessToken = `Bearer ${token.access_token}`;
+          this.session.refreshToken = token.refresh_token;
+          this.session.tokenExpiresAt = Math.floor(Date.now() / 1000 + token.expires_in);
+          authenticated = true;
+        } catch (e) {
+          logger.debug(
+            `@EuropeController.login: sign in with ${
+              this.authStrategies.main.name
+            } failed with error ${(e as Stringifiable).toString()}`
+          );
+        }
+      }
+
+      // Otherwise log in with the account password via the OneApp/CCI flow
+      if (!authenticated) {
+        try {
+          logger.debug(
+            `@EuropeController.login: Trying to sign in with ${this.cciAuthStrategy.name}`
+          );
+          this.applyCCIBundle(await this.cciAuthStrategy.login(credentials));
+        } catch (e) {
+          logger.error(
+            `@EuropeController.login: sign in with ${
+              this.cciAuthStrategy.name
+            } failed with error ${(e as Stringifiable).toString()}`
+          );
+
+          throw new Error('@EuropeController.login: Could not manage to get token');
+        }
       }
 
       logger.debug('@EuropeController.login: Authenticated properly with user and password');
-
-      const token = authResult.code as Token;
-      this.session.accessToken = `Bearer ${token.access_token}`;
-      this.session.refreshToken = token.refresh_token;
-      this.session.tokenExpiresAt = Math.floor(Date.now() / 1000 + token.expires_in);
 
       const genRanHex = size =>
         [...Array(size)].map(() => Math.floor(Math.random() * 16).toString(16)).join('');

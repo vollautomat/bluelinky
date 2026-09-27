@@ -25,7 +25,7 @@ export default {
       banner: '/* @preserve bluelinky / MIT License / https://github.com/Hacksore/bluelinky */',
     },
   ],
-  external: [...Object.keys(pkg.dependencies || {}), 'events', 'url', 'fs', 'util'],
+  external: [...Object.keys(pkg.dependencies || {}), 'events', 'url', 'fs', 'util', 'crypto'],
   plugins: [
     resolve({ preferBuiltins: true }),
     typescript({}),

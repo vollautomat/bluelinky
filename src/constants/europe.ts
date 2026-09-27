@@ -35,6 +35,19 @@ export const EU_LANGUAGES: EULanguages[] = [
 ];
 export const DEFAULT_LANGUAGE: EULanguages = 'en';
 
+// OneApp/CCI login parameters. The legacy IDPConnect authorize endpoint is
+// WAF-blocked since 2026-08 ("classified as an abusing request"), the OneApp
+// client_id is not. See evcc vehicle/bluelink/cci.go.
+export interface EuropeanCCIConfig {
+  oneAppClientID: string;
+  oneAppRedirectURI: string;
+  apiURL: string;
+  packageID: string;
+  clientName: string;
+  osVersion: string;
+  notificationProvider: string;
+}
+
 export interface EuropeanBrandEnvironment {
   brand: Brand;
   host: string;
@@ -47,6 +60,7 @@ export interface EuropeanBrandEnvironment {
   basicToken: string;
   pushType: string;
   loginFormHost: string;
+  cci: EuropeanCCIConfig;
 
   endpoints: {
     deviceIdURL: string;
@@ -115,6 +129,15 @@ const getHyundaiEnvironment = (): EuropeanBrandEnvironment => {
   const basicToken =        'NmQ0NzdjMzgtM2NhNC00Y2YzLTk1NTctMmExOTI5YTk0NjU0OktVeTQ5WHhQekxwTHVvSzB4aEJDNzdXNlZYaG10UVI5aVFobUlGampvWTRJcHhzVg==';
   const pushType =          'GCM';
   const loginFormHost =     'https://idpconnect-eu.hyundai.com';
+  const cci: EuropeanCCIConfig = {
+    oneAppClientID:       '4f4953b5-02e1-4dbc-8599-87e983ee1be5',
+    oneAppRedirectURI:    'https://oneapp.hyundai.com/redirect',
+    apiURL:               'https://cci-api-eu.hyundai.com',
+    packageID:            'com.hyundai.oneapp.eu',
+    clientName:           'hyundai',
+    osVersion:            '18.7',
+    notificationProvider: 'APNS',
+  };
 
   return {
     brand: 'hyundai',
@@ -127,6 +150,7 @@ const getHyundaiEnvironment = (): EuropeanBrandEnvironment => {
     basicToken,
     pushType,
     loginFormHost,
+    cci,
     endpoints: Object.freeze(getEndpoints(baseUrl)),
     stamp: getStamp(cfb, ccspApplicationID),
   };
@@ -143,6 +167,15 @@ const getKiaEnvironment = (): EuropeanBrandEnvironment => {
   const basicToken =        'ZmRjODVjMDAtMGEyZi00YzY0LWJjYjQtMmNmYjE1MDA3MzBhOnNlY3JldA==';
   const pushType =          'APNS';
   const loginFormHost =     'https://idpconnect-eu.kia.com';
+  const cci: EuropeanCCIConfig = {
+    oneAppClientID:       '01b36c86-79e8-486c-8009-15f2ad88d670',
+    oneAppRedirectURI:    'https://oneapp.kia.com/redirect',
+    apiURL:               'https://cci-api-eu.kia.com',
+    packageID:            'com.kia.oneapp.eu',
+    clientName:           'kia',
+    osVersion:            '27',
+    notificationProvider: 'IOS_APPSTORE',
+  };
 
   return {
     brand: 'kia',
@@ -155,6 +188,7 @@ const getKiaEnvironment = (): EuropeanBrandEnvironment => {
     basicToken,
     pushType,
     loginFormHost,
+    cci,
     endpoints: Object.freeze(getEndpoints(baseUrl)),
     stamp: getStamp(cfb, ccspApplicationID),
   };
